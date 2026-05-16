@@ -9,7 +9,7 @@ import "./index.css";
 import App from "./App.jsx";
 
 export const monadTestnet = defineChain({
-  id: 10143,
+  id: 41454,
   name: "Monad Testnet",
   nativeCurrency: { name: "MON", symbol: "MON", decimals: 18 },
   rpcUrls: {

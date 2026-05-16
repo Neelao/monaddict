@@ -9,7 +9,6 @@ import { short, initial, Modal } from "../Constants.jsx";
 function AddFriendModal({ onClose, onAdd }) {
   const [addr, setAddr] = useState("");
   const [name, setName] = useState("");
-  const canAdd = isAddress(addr);
 
   return (
     <Modal
@@ -19,8 +18,7 @@ function AddFriendModal({ onClose, onAdd }) {
         <>
           <button
             className="btn btn-ink"
-            disabled={!canAdd}
-            onClick={() => canAdd && onAdd(addr, name)}
+            onClick={() => addr && onAdd(addr, name)}
           >
             Add Friend
           </button>
@@ -31,18 +29,13 @@ function AddFriendModal({ onClose, onAdd }) {
       }
     >
       <div className="field">
-        <label className="label">Wallet Address</label>
+        <label className="label">Wallet Address or ENS</label>
         <input
           className="input"
-          placeholder="0x1234..."
+          placeholder="0x… or vitalik.eth"
           value={addr}
           onChange={(e) => setAddr(e.target.value)}
         />
-        {addr && !canAdd && (
-          <div className="field-hint error">
-            Use a full 0x wallet address so bet transactions can go to this person.
-          </div>
-        )}
       </div>
       <div className="field">
         <label className="label">Display Name (optional)</label>
