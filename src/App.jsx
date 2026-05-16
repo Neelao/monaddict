@@ -22,7 +22,7 @@ function useToast() {
 }
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
-function Sidebar({ page, setPage, state, walletAddress, onWalletClick }) {
+function Sidebar({ page, setPage, state }) {
   const pendingCount = state.pendingRequests.length;
   const activeBets   = state.bets.filter((b) => b.status !== "settled").length;
 
@@ -56,97 +56,13 @@ function Sidebar({ page, setPage, state, walletAddress, onWalletClick }) {
         ))}
       </nav>
 
-      <button className="sidebar-wallet" onClick={onWalletClick}>
+      <div className="sidebar-wallet">
         <span className="wallet-dot" />
-        {walletAddress
-          ? short(walletAddress)
-          : isAddress(state.account)
-          ? `Test ${short(state.account)}`
-          : "Connect Wallet"}
-      </button>
+        {short(state.account)}
+      </div>
     </aside>
   );
 }
-
-// ─── Wallet Modal ────────────────────────────────────────────────────────────
-function WalletModal({ account, activeAccount, onClose, onConnect, onSwitch, onDisconnect, onUseTestUser }) {
-  const [testAddress, setTestAddress] = useState("");
-  const canUseTestUser = isAddress(testAddress);
-
-  return (
-    <Modal
-      title="Connect to wallet"
-      onClose={onClose}
-      footer={
-        <>
-          <button className="btn btn-ghost" onClick={onClose}>
-            Cancel
-          </button>
-          {account && (
-            <>
-              <button className="btn btn-ghost" onClick={onDisconnect}>
-                Disconnect
-              </button>
-              <button className="btn btn-amber" onClick={onSwitch}>
-                Switch Wallet
-              </button>
-            </>
-          )}
-          <button className="btn btn-ink" onClick={() => onConnect(true)}>
-            Connect MetaMask
-          </button>
-        </>
-      }
-    >
-      <div className="wallet-connect-box">
-        <div className="wallet-connect-icon">M</div>
-        <div>
-          <div className="wallet-connect-title">MetaMask</div>
-          <div className="wallet-connect-copy">
-            {account
-              ? `Active user: ${short(account)}`
-              : activeAccount && isAddress(activeAccount)
-              ? `Local test user: ${short(activeAccount)}`
-              : "Connect any wallet to use GoalPool as that user."}
-          </div>
-        </div>
-      </div>
-
-      <div className="wallet-test-box">
-        <label className="label">Use address for local testing</label>
-        <div className="wallet-test-row">
-          <input
-            className="input"
-            placeholder="Friend's 0x wallet address"
-            value={testAddress}
-            onChange={(e) => setTestAddress(e.target.value)}
-          />
-          <button
-            className="btn btn-ghost"
-            disabled={!canUseTestUser}
-            onClick={() => onUseTestUser(testAddress)}
-          >
-            Use
-          </button>
-        </div>
-        <div className="field-hint">
-          This changes the app user for local testing. Real transactions still need MetaMask switched to the same wallet.
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-const MONAD_TESTNET = {
-  chainId: "0x279f",
-  chainName: "Monad Testnet",
-  nativeCurrency: { name: "MON", symbol: "MON", decimals: 18 },
-  rpcUrls: ["https://testnet-rpc.monad.xyz"],
-  blockExplorerUrls: ["https://testnet.monadexplorer.com"],
-};
-
-const isAddress = (value) => /^0x[a-fA-F0-9]{40}$/.test(value || "");
-const mon = (value) => Number.parseFloat(value || 0);
 
 // ─── Home / Dashboard ─────────────────────────────────────────────────────────
 function HomePage({ state, setPage, onBet, markComplete }) {
@@ -345,47 +261,9 @@ export default function App() {
   const [state, setState] = useState(INITIAL_STATE);
   const [page,  setPage]  = useState("home");
   const [betGoalId, setBetGoalId] = useState(null); // pre-link goal → bets page
-  const [showWallet, setShowWallet] = useState(false);
-  const [walletAddress, setWalletAddress] = useState("");
   const { toasts, push } = useToast();
 
   const update = (fn) => setState((s) => fn({ ...s }));
-
-  function activateWalletAccount(account) {
-    if (!account) return;
-
-    setWalletAddress(account);
-    update((s) => {
-      s.account = account;
-      s.groups = s.groups.map((g) =>
-        g.members.includes(account)
-          ? g
-          : { ...g, members: [...g.members, account] }
-      );
-      return s;
-    });
-  }
-
-  function clearWalletAccount() {
-    setWalletAddress("");
-    update((s) => {
-      s.account = INITIAL_STATE.account;
-      return s;
-    });
-  }
-
-  useEffect(() => {
-    if (!window.ethereum?.on) return;
-
-    const handleAccountsChanged = (accounts) => {
-      const account = accounts?.[0] || "";
-      setWalletAddress(account);
-      if (account) activateWalletAccount(account);
-    };
-
-    window.ethereum.on("accountsChanged", handleAccountsChanged);
-    return () => window.ethereum.removeListener?.("accountsChanged", handleAccountsChanged);
-  }, []);
 
   // ── Actions (wire to contract here) ────────────────────────────────────────
   function addFriend(address, name) {
@@ -481,139 +359,36 @@ export default function App() {
     push("Goal verified!", "success");
   }
 
-  async function createBet(data) {
-    let txHash = null;
-
-    try {
-      txHash = await requestBetTransaction({
-        amount: data.amount,
-        to: data.against,
-        label: "bet stake",
-      });
-    } catch (error) {
-      console.error("Bet transaction failed:", error);
-      push(error.message || "Bet transaction cancelled", "error");
-      return false;
-    }
-
+  function createBet(data) {
     const id = "bet" + Date.now();
     update((s) => {
       s.bets = [
         ...s.bets,
-        {
-          id,
-          ...data,
-          txHash,
-          status: "pending_accept",
-          winner: null,
-          createdAt: Date.now(),
-        },
-      ];
-      s.transactions = [
-        ...(s.transactions || []),
-        {
-          id: "tx" + Date.now(),
-          betId: id,
-          type: "stake_sent",
-          label: "Bet proposed",
-          amount: -mon(data.amount),
-          token: data.token,
-          hash: txHash,
-          counterparty: data.against,
-          createdAt: Date.now(),
-        },
+        { id, ...data, status: "pending_accept", winner: null, createdAt: Date.now() },
       ];
       return s;
     });
-    push("Bet proposed with stake transaction", "success");
-    return true;
+    push("Bet proposed!", "success");
   }
 
-  async function acceptBet(betId) {
-    const bet = state.bets.find((b) => b.id === betId);
-    if (!bet) return false;
-
-    let acceptTxHash = null;
-
-    try {
-      acceptTxHash = await requestBetTransaction({
-        amount: bet.amount,
-        to: bet.creator,
-        label: "accept stake",
-      });
-    } catch (error) {
-      console.error("Accept transaction failed:", error);
-      push(error.message || "Accept transaction cancelled", "error");
-      return false;
-    }
-
+  function acceptBet(betId) {
     update((s) => {
       s.bets = s.bets.map((b) =>
-        b.id === betId ? { ...b, status: "active", acceptTxHash } : b
+        b.id === betId ? { ...b, status: "active" } : b
       );
-      s.transactions = [
-        ...(s.transactions || []),
-        {
-          id: "tx" + Date.now(),
-          betId,
-          type: "stake_sent",
-          label: "Bet accepted",
-          amount: -mon(bet.amount),
-          token: bet.token,
-          hash: acceptTxHash,
-          counterparty: bet.creator,
-          createdAt: Date.now(),
-        },
-      ];
       return s;
     });
-    push("Bet accepted — stakes sent", "success");
-    return true;
+    push("Bet accepted — stakes locked 🔒", "success");
   }
 
-  async function settleBet(betId, winner) {
-    let settleTxHash = null;
-
-    try {
-      settleTxHash = await requestBetTransaction({
-        amount: "0",
-        to: walletAddress,
-        label: "settlement confirmation",
-      });
-    } catch (error) {
-      console.error("Settlement transaction failed:", error);
-      push(error.message || "Settlement transaction cancelled", "error");
-      return false;
-    }
-
+  function settleBet(betId, winner) {
     update((s) => {
-      const bet = s.bets.find((b) => b.id === betId);
-      const won = bet && winner === s.account;
-      const settlementAmount = won && bet ? mon(bet.amount) * 2 : 0;
-
       s.bets = s.bets.map((b) =>
-        b.id === betId ? { ...b, status: "settled", winner, settleTxHash } : b
+        b.id === betId ? { ...b, status: "settled", winner } : b
       );
-      if (bet) {
-        s.transactions = [
-          ...(s.transactions || []),
-          {
-            id: "tx" + Date.now(),
-            betId,
-            type: won ? "settlement_gain" : "settlement_loss",
-            label: won ? "Bet won" : "Bet lost",
-            amount: settlementAmount,
-            token: bet.token,
-            hash: settleTxHash,
-            counterparty: won ? (bet.creator === s.account ? bet.against : bet.creator) : winner,
-            createdAt: Date.now(),
-          },
-        ];
-      }
       return s;
     });
-    push("Bet settled with confirmation transaction", "success");
-    return true;
+    push("Bet settled!", "success");
   }
 
   // Open bets page pre-linked to a goal
@@ -622,112 +397,11 @@ export default function App() {
     setPage("bets");
   }
 
-  async function connectWallet(forcePicker = false) {
-    if (!window.ethereum) {
-      push("MetaMask is not installed", "error");
-      return;
-    }
-
-    try {
-      if (forcePicker) {
-        await window.ethereum.request({
-          method: "wallet_requestPermissions",
-          params: [{ eth_accounts: {} }],
-        });
-      }
-
-      const accounts = await window.ethereum.request({
-        method: "eth_requestAccounts",
-      });
-      const account = accounts[0];
-
-      activateWalletAccount(account);
-      setShowWallet(false);
-      push(`Wallet connected as ${short(account)}`, "success");
-    } catch (error) {
-      console.error("Wallet connection failed:", error);
-      push("Wallet connection cancelled", "error");
-    }
-  }
-
-  async function disconnectWallet() {
-    try {
-      await window.ethereum?.request?.({
-        method: "wallet_revokePermissions",
-        params: [{ eth_accounts: {} }],
-      });
-    } catch (error) {
-      console.info("MetaMask permission revoke unavailable or cancelled:", error);
-    }
-
-    clearWalletAccount();
-    setShowWallet(false);
-    push("Wallet disconnected", "success");
-  }
-
-  function useTestUser(address) {
-    activateWalletAccount(address);
-    setWalletAddress("");
-    setShowWallet(false);
-    push(`Local test user set to ${short(address)}`, "success");
-  }
-
-  async function ensureMonadTestnet() {
-    try {
-      await window.ethereum.request({
-        method: "wallet_switchEthereumChain",
-        params: [{ chainId: MONAD_TESTNET.chainId }],
-      });
-    } catch (error) {
-      if (error.code !== 4902) throw error;
-      await window.ethereum.request({
-        method: "wallet_addEthereumChain",
-        params: [MONAD_TESTNET],
-      });
-    }
-  }
-
-  async function requestBetTransaction({ amount, to, label }) {
-    if (!window.ethereum) {
-      throw new Error("MetaMask is not installed");
-    }
-
-    const [account] = await window.ethereum.request({
-      method: "eth_requestAccounts",
-    });
-
-    if (isAddress(state.account) && state.account.toLowerCase() !== account.toLowerCase()) {
-      throw new Error(`MetaMask is connected to ${short(account)}. Switch MetaMask to ${short(state.account)} first.`);
-    }
-
-    activateWalletAccount(account);
-    await ensureMonadTestnet();
-
-    if (!isAddress(to)) {
-      throw new Error("This bet uses a mock address. Add your friend's real 0x wallet address first.");
-    }
-
-    const recipient = to;
-    const value = `0x${parseEther(amount || "0").toString(16)}`;
-
-    push(`Confirm ${label} in MetaMask`);
-    return window.ethereum.request({
-      method: "eth_sendTransaction",
-      params: [{ from: account, to: recipient, value }],
-    });
-  }
-
   return (
     <>
       <style>{CSS}</style>
       <div className="shell">
-        <Sidebar
-          page={page}
-          setPage={setPage}
-          state={state}
-          walletAddress={walletAddress}
-          onWalletClick={() => setShowWallet(true)}
-        />
+        <Sidebar page={page} setPage={setPage} state={state} />
 
         <main className="content">
           {page === "home" && (
@@ -772,18 +446,6 @@ export default function App() {
           )}
         </main>
       </div>
-
-      {showWallet && (
-        <WalletModal
-          account={walletAddress}
-          activeAccount={state.account}
-          onClose={() => setShowWallet(false)}
-          onConnect={connectWallet}
-          onSwitch={() => connectWallet(true)}
-          onDisconnect={disconnectWallet}
-          onUseTestUser={useTestUser}
-        />
-      )}
 
       {/* Global toasts */}
       <div className="toasts">
