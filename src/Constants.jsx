@@ -19,9 +19,16 @@ export const INITIAL_STATE = {
       name: "Builders Sprint",
       description: "Ship fast or pay up",
       creator: MOCK_ACCOUNT,
-      members: [MOCK_ACCOUNT, "0xAlice111", "0xBob2222"],
+      members: [
+        { address: MOCK_ACCOUNT, stake: "0.5",  ready: true  },
+        { address: "0xAlice111", stake: "0.25", ready: true  },
+        { address: "0xBob2222",  stake: null,   ready: false },
+      ],
       isPrivate: true,
       createdAt: Date.now() - 86400000 * 5,
+      status: "lobby",   // "lobby" | "active" | "finalized"
+      deadline: null,
+      finalResult: null, // set after finalization
     },
   ],
   goals: [

@@ -297,22 +297,93 @@ export default function App() {
     push("Request declined");
   }
 
-  function createGroup(name, description, isPrivate) {
+  function createGroup(name, description, isPrivate, invitedAddresses = []) {
     const id = "g" + Date.now();
     update((s) => {
+      const members = [
+        { address: s.account, stake: null, ready: false },
+        ...invitedAddresses.map((addr) => ({ address: addr, stake: null, ready: false })),
+      ];
       s.groups = [
         ...s.groups,
         {
           id, name, description,
           creator: s.account,
-          members: [s.account],
+          members,
           isPrivate,
           createdAt: Date.now(),
+          status: "lobby",
+          deadline: null,
+          finalResult: null,
         },
       ];
       return s;
     });
     push("Group created!", "success");
+  }
+
+  function setMemberStake(groupId, stake) {
+    update((s) => {
+      s.groups = s.groups.map((g) => {
+        if (g.id !== groupId) return g;
+        const hasGoal = s.goals.some(
+          (gl) => gl.owner === s.account && gl.groupId === groupId
+        );
+        return {
+          ...g,
+          members: g.members.map((m) =>
+            m.address === s.account
+              ? { ...m, stake, ready: hasGoal && parseFloat(stake) > 0 }
+              : m
+          ),
+        };
+      });
+      return s;
+    });
+    push("Stake set!", "success");
+  }
+
+  function startSession(groupId, deadline) {
+    update((s) => {
+      s.groups = s.groups.map((g) =>
+        g.id === groupId ? { ...g, status: "active", deadline } : g
+      );
+      return s;
+    });
+    push("Session started! Stakes are locked.", "success");
+  }
+
+  function finalizeGroup(groupId) {
+    update((s) => {
+      const group = s.groups.find((g) => g.id === groupId);
+      if (!group) return s;
+      const groupGoals = s.goals.filter((gl) => gl.groupId === groupId);
+      const membersWithResults = group.members.map((m) => {
+        const goal = groupGoals.find((gl) => gl.owner === m.address);
+        return { ...m, completed: goal?.completedAt != null };
+      });
+      const winners = membersWithResults.filter((m) => m.completed && m.stake);
+      const losers  = membersWithResults.filter((m) => !m.completed && m.stake);
+      const totalForfeited = losers.reduce((sum, m) => sum + parseFloat(m.stake || "0"), 0);
+      const perWinner = winners.length > 0 ? totalForfeited / winners.length : 0;
+      s.groups = s.groups.map((g) =>
+        g.id === groupId
+          ? {
+              ...g,
+              status: "finalized",
+              members: membersWithResults,
+              finalResult: {
+                totalForfeited: totalForfeited.toFixed(4),
+                perWinner: perWinner.toFixed(4),
+                winnerCount: winners.length,
+                loserCount: losers.length,
+              },
+            }
+          : g
+      );
+      return s;
+    });
+    push("Group finalized! Prizes distributed.", "success");
   }
 
   function addGoal(title, description, deadline, groupId) {
@@ -328,6 +399,20 @@ export default function App() {
           verifiedBy: [],
         },
       ];
+      // Sync member ready state: goal now set, check if stake also exists
+      if (groupId) {
+        s.groups = s.groups.map((g) => {
+          if (g.id !== groupId) return g;
+          return {
+            ...g,
+            members: g.members.map((m) =>
+              m.address === s.account
+                ? { ...m, ready: m.stake != null && parseFloat(m.stake) > 0 }
+                : m
+            ),
+          };
+        });
+      }
       return s;
     });
     push("Goal set!", "success");
@@ -424,6 +509,11 @@ export default function App() {
             <GroupsPage
               state={state}
               createGroup={createGroup}
+              setMemberStake={setMemberStake}
+              startSession={startSession}
+              finalizeGroup={finalizeGroup}
+              addGoal={addGoal}
+              markComplete={markComplete}
             />
           )}
           {page === "goals" && (
